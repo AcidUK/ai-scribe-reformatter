@@ -21,12 +21,14 @@ class BlockItem:
 
         if re.match(r"^History:", self.heading):
             result = self.parse_history()
+
         elif (
             re.match(r"^Past Medical History:", self.heading)
             or re.match(r"PMHx:", self.heading)
             or re.match(r"PMH:", self.heading)
         ):
             result = self.parse_pmh()
+
         elif (
             re.match(r"^Physical Examination:", self.heading)
             or re.match(r"Examination:", self.heading)
@@ -34,12 +36,15 @@ class BlockItem:
             or re.match(r"O/E:", self.heading)
         ):
             result = self.parse_exam()
+
         elif re.match(r"^Impression:", self.heading):
             result = self.parse_imp()
+
         elif re.match(r"^Management Plan:", self.heading) or re.match(
             r"Plan:", self.heading
         ):
             result = self.parse_plan()
+            
         else:
             result = self.parse_unhandled()
 
@@ -80,6 +85,9 @@ class BlockItem:
         self.heading = "Plan:"
         return SectionResponse(self.heading + "\n" + "\n".join(self.bullets), False)
 
+    def parse_patient_summary(self):
+        return None
+
     def parse_unhandled(self):
         # return SectionResponse(self.heading + "\n" + "\n".join(self.bullets), False)
         return SectionResponse(self.heading + " " + self.prose + "\n", True)
@@ -96,10 +104,7 @@ def block_parser(block: str) -> BlockItem:
     contents = block.splitlines()
 
     heading = contents.pop(0)
-    bullets = contents
-
-    if len(bullets) == 1:
-        bullets[0] = bullets[0].lstrip("- ")
+    bullets = [ bullet.lstrip("- ") for bullet in contents ]
 
     if bullets == [""]:
         return None  # Guard for a block with a heading but no contents
@@ -161,7 +166,8 @@ def get_split_sections(consultation: str) -> dict:
         dict: A dictionary containing history, eam, imp and plan sections
     """
 
-    items = get_items(consultation)
+    main_history = consultation.partition('\r\nPatient Summary')[0] # Dump patient summary and after
+    items = get_items(main_history)
 
     titles = {
         "history": "History:",
@@ -179,8 +185,10 @@ def get_split_sections(consultation: str) -> dict:
         output = linesep.join([s for s in output.splitlines() if s])
         if i.heading in sections:
             cur = sections[i.heading]
-        if cur == "history" and (i.heading != 'History:'):
+        if cur == "history" and (i.heading != 'History:'): # Put newline before new sections in history
             output = "\r\n" + output
+        if i.heading == "Investigations: ": # Put investigations in history
+            result["history"] += "\r\n" + output
         if result[cur]:
             result[cur] += output
         else:
