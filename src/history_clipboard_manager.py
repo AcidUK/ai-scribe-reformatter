@@ -7,7 +7,7 @@ from enum import Enum
 from datetime import datetime, timedelta
 import pyautogui as ag
 import pystray
-from sys import exit
+from sys import exit, stderr
 
 from PIL import Image, ImageDraw
 
@@ -47,13 +47,15 @@ def middle_mouse():
 
         clip = pyperclip.paste()
         if "History:" in clip and "Plan:" in clip:
+            # TODO: fix try/except block to catch specific exception around parsing only
             try:
                 sections = get_split_sections(clip)
                 g = Gui(sections)
                 g.remove_headings()
                 consultation = g.show_gui()
                 state = State.COPIED
-            except:
+            except Exception as e:
+            #    print("Something went wrong: {}".format(e), file=stderr)
                 print("Didn't find a consultation in clipboard")
 
     elif state == State.COPIED:

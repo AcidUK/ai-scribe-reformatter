@@ -146,6 +146,7 @@ def parse_bullets_to_comma_separated_prose(bullets: list) -> str:
 
 
 def get_items(consultation: str):
+    consultation = consultation.rstrip()
     # Need to split on two subsequent linebreaks, different on windows vs linux
     if "\r\n" in consultation:
         sections = consultation.split("\r\n\r\n")
