@@ -25,6 +25,7 @@ PLAN_PASTE_TIME = timedelta(seconds=20)
 first_paste = datetime.now() - timedelta(hours=1)
 state = State.PLAN_PASTED
 consultation = {}
+record_consent = False
 
 
 def middle_mouse():
@@ -32,6 +33,7 @@ def middle_mouse():
     global state
     global consultation
     global first_paste
+    global record_consent
     global PLAN_PASTE_TIME
 
     if (
@@ -50,6 +52,8 @@ def middle_mouse():
             # TODO: fix try/except block to catch specific exception around parsing only
             try:
                 sections = get_split_sections(clip)
+                if sections['history'] and record_consent:
+                    sections['history'] += '\r\n(verbal consent given for AI transcription)'
                 g = Gui(sections)
                 g.remove_headings()
                 consultation = g.show_gui()
@@ -92,8 +96,14 @@ def create_image(width, height, color1, color2):
 
     return image
 
+def toggle_consent(icon, item):
+    global record_consent
+    record_consent = not item.checked
+
 
 def main():
+    global record_consent
+
     mouse.on_button(
         callback=middle_mouse, buttons=(mouse.MIDDLE), types=(mouse.DOWN, mouse.DOUBLE)
     )
@@ -106,7 +116,7 @@ def main():
     icon = pystray.Icon(
         "test name",
         icon=create_image(64, 64, "black", "white"),
-        menu=pystray.Menu(pystray.MenuItem("Documentation History Importer", None), pystray.Menu.SEPARATOR, pystray.MenuItem("Exit", quit)),
+        menu=pystray.Menu(pystray.MenuItem("Documentation History Importer", None), pystray.Menu.SEPARATOR, pystray.MenuItem("Automatically Record Consent", toggle_consent, checked=lambda item: record_consent), pystray.MenuItem("Exit", quit)),
     ).run()
 
 
