@@ -2,7 +2,7 @@
 
 A tool to reformat the ai consultation notes produced by heidi the AI scribe tool. This tool is not affiliated with the Heidi organisation, all trademarks and copyrights belong to them.
 
-This tool copies a consultation, shows an editor, and then will paste it into Systmone.
+This tool copies a consultation, shows an editor, and then will paste it into SystmOne.
 
 ## Video Instructions
 
@@ -23,6 +23,10 @@ This tool copies a consultation, shows an editor, and then will paste it into Sy
 * Extra spaces in sub-bullet point lists
 * Numereical lists in plan
 * Investigations into the history section
+
+## Payment
+
+This tool is provided freely, but I encourage you to consider subscribing to Heidi. Although this tool works with the free version of Heidi, they require subscribers to keep offering the free version, and their paid product adds the ability to query the consultationn directly to produce reports, referrals and useful targetted summaries (eg: medication change list for patient). I think it is the most useful AI innovation to come to primary care so far.
 
 ## Is this tool safe?
 
