@@ -22,5 +22,14 @@ This tool copies a consultation, shows an editor, and then will paste it into Sy
 
 * Extra spaces in sub-bullet point lists
 * Numereical lists in plan
-* Editing box spacing issue?
-* 'Hx of history of'
+* Investigations into the history section
+
+## Is this tool safe?
+
+This question has two parts - is it safe to run on any computer, and is it safe to use with patient data?
+
+I am an NHS GP, not a software engineer/developer, but this tool has been created with information governance in mind. The tool does not communicate with the internet in any way. I haven't added an auto-update feature for this reason. You can be confident that no patient data is leaving your computer when using it. Patient data does pass through the tool - you're copying a consultation from Heidi to SystmOne, and the tool uses your clipboard to do this. 
+
+The aim of the tool is to reformat the data, but if there is an atypical consultation from Heidi, or they change their formatting (they do do this), some of your consultation might be missed. You *have* to read through the notes it generates to make sure it accurately reflects all of your consultation. I can't take responsibility for any omissions or inaccurate restructuring. If this seems too risky for you, then I would encourage you not to use the tool. 
+
+I have provided all of the source code (the programming) for the tool, so you can either edit it yourself to customise it, or turn it into your own executable file. The executables are generated using pyinstaller with a github workflow. [You can see how this is done here](.github/workflows/make_exe_pyinstaller.yml). Currently it runs well through virustotal.com, although at the time of writing 2 of the 40-something virus detection heuristic algorithms flag up the pyinstaller build.
