@@ -1,7 +1,7 @@
 [project]
 name = "ai-scribe-reformatter"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.1.5"
+description = "A tool to reformat the ai consultation notes produced by heidi the AI scribe tool. This tool is not affiliated with the Heidi organisation, all trademarks and copyrights belong to them."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
@@ -9,6 +9,7 @@ dependencies = [
     "mouse>=0.7.1",
     "pillow>=12.1.0",
     "pyautogui>=0.9.54",
+    "pyinstaller>=6.17.0",
     "pyperclip>=1.11.0",
     "pystray>=0.19.5",
 ]
