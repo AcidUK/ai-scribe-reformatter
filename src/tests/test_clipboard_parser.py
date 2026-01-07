@@ -1,5 +1,4 @@
 import pytest
-import pyperclip
 from clipboard_parser import (
     block_parser, 
     parse_bullets_to_prose, 

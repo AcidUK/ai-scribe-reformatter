@@ -6,6 +6,15 @@ from os import linesep
 
 SectionResponse = namedtuple("SectionResponse", ["output", "newlines_handled"])
 
+# Configuration for heading pattern matching
+HEADING_PATTERNS = {
+    'history': [r'^History:'],
+    'pmh': [r'^Past Medical History:', r'PMHx:', r'PMH:'],
+    'exam': [r'^Physical Examination:', r'Examination:', r'Exam:', r'O/E:'],
+    'impression': [r'^Impression:', r'Assessment:', r'Imp:'],
+    'plan': [r'^Management Plan:', r'Plan:']
+}
+
 
 class BlockItem:
     def __init__(
@@ -16,35 +25,29 @@ class BlockItem:
         self.prose = prose
         self.comma_separated_prose = comma_separated_prose
 
+    def _match_heading_type(self):
+        """Match heading against patterns to determine section type."""
+        for section_type, patterns in HEADING_PATTERNS.items():
+            for pattern in patterns:
+                if re.match(pattern, self.heading):
+                    return section_type
+        return None
+
     def parse(self):
         output = ""
 
-        if re.match(r"^History:", self.heading):
+        section_type = self._match_heading_type()
+
+        if section_type == 'history':
             result = self.parse_history()
-
-        elif (
-            re.match(r"^Past Medical History:", self.heading)
-            or re.match(r"PMHx:", self.heading)
-            or re.match(r"PMH:", self.heading)
-        ):
+        elif section_type == 'pmh':
             result = self.parse_pmh()
-
-        elif (
-            re.match(r"^Physical Examination:", self.heading)
-            or re.match(r"Examination:", self.heading)
-            or re.match(r"Exam:", self.heading)
-            or re.match(r"O/E:", self.heading)
-        ):
+        elif section_type == 'exam':
             result = self.parse_exam()
-
-        elif re.match(r"^Impression:", self.heading):
+        elif section_type == 'impression':
             result = self.parse_imp()
-
-        elif re.match(r"^Management Plan:", self.heading) or re.match(
-            r"Plan:", self.heading
-        ):
+        elif section_type == 'plan':
             result = self.parse_plan()
-            
         else:
             result = self.parse_unhandled()
 
@@ -139,10 +142,18 @@ def parse_bullets_to_prose(bullets: list) -> str:
 def parse_bullets_to_comma_separated_prose(bullets: list) -> str:
     """Makes first letter of bullet points lower case, then joins bullet points with a comma"""
 
-    lower_case = [bullet[0].lower() + bullet[1:] for bullet in bullets]
-    prose = parse_bullets_to_prose(lower_case)
-    prose = prose.replace(". ", ", ")
-    return prose
+    output = ""
+
+    for line in bullets:
+        if line.endswith("."):
+            line = line[:-1]
+        line = line.replace("- ", "")
+        # Make first letter lowercase
+        if line:
+            line = line[0].lower() + line[1:]
+        output += line + ", "
+
+    return output[:-2]  # Remove trailing comma and space
 
 
 def get_items(consultation: str):
@@ -157,6 +168,55 @@ def get_items(consultation: str):
     return items
 
 
+def _get_section_category(heading):
+    """Determine which category a heading belongs to.
+
+    Args:
+        heading: The heading string to categorize
+
+    Returns:
+        str: The section key ('history', 'exam', 'imp', 'plan') or None
+    """
+    section_map = {
+        "History:": "history",
+        "Examination:": "exam",
+        "Impression:": "imp",
+        "Plan:": "plan",
+    }
+    return section_map.get(heading)
+
+
+def _format_section_output(output, heading, current_section):
+    """Format output based on section context.
+
+    Args:
+        output: The parsed output string
+        heading: The heading of the current item
+        current_section: The current section being processed
+
+    Returns:
+        str: Formatted output string
+    """
+    # Add newline before non-History subsections in the history section
+    if current_section == "history" and heading != 'History:':
+        output = "\r\n" + output
+    return output
+
+
+def _append_to_section(result, section_key, output):
+    """Append output to a section, handling None values.
+
+    Args:
+        result: The result dictionary
+        section_key: The section key to append to
+        output: The output string to append
+    """
+    if result[section_key]:
+        result[section_key] += output
+    else:
+        result[section_key] = output
+
+
 def get_split_sections(consultation: str) -> dict:
     """Gets history, exam, imp and plan from consultation
 
@@ -164,36 +224,29 @@ def get_split_sections(consultation: str) -> dict:
         consultation (str): a multiline string containing a consultation from heidi using the H&P template
 
     Returns:
-        dict: A dictionary containing history, eam, imp and plan sections
+        dict: A dictionary containing history, exam, imp and plan sections
     """
-
-    main_history = consultation.partition('\r\nPatient Summary')[0] # Dump patient summary and after
+    main_history = consultation.partition('\r\nPatient Summary')[0]  # Dump patient summary and after
     items = get_items(main_history)
 
-    titles = {
-        "history": "History:",
-        "exam": "Examination:",
-        "imp": "Impression:",
-        "plan": "Plan:",
-    }
-    sections = dict((v, k) for k, v in titles.items())
-    result = dict.fromkeys(titles.keys())
+    result = dict.fromkeys(["history", "exam", "imp", "plan"])
+    current_section = "history"
 
-    cur = "history"
-
-    for i in items:
-        output = i.parse()
+    for item in items:
+        output = item.parse()
         output = linesep.join([s for s in output.splitlines() if s])
-        if i.heading in sections:
-            cur = sections[i.heading]
-        if cur == "history" and (i.heading != 'History:'): # Put newline before new sections in history
-            output = "\r\n" + output
-        if i.heading == "Investigations: ": # Put investigations in history
-            result["history"] += "\r\n" + output
-        if result[cur]:
-            result[cur] += output
+
+        # Update current section if we encounter a section heading
+        section_category = _get_section_category(item.heading)
+        if section_category:
+            current_section = section_category
+
+        # Special case: Investigations always go in history
+        if item.heading == "Investigations: ":
+            _append_to_section(result, "history", "\r\n" + output)
         else:
-            result[cur] = output
+            output = _format_section_output(output, item.heading, current_section)
+            _append_to_section(result, current_section, output)
 
     return result
 

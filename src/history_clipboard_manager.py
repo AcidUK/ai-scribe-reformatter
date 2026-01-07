@@ -7,7 +7,7 @@ from enum import Enum
 from datetime import datetime, timedelta
 import pyautogui as ag
 import pystray
-from sys import exit, stderr
+from sys import exit
 
 from PIL import Image, ImageDraw
 
@@ -19,67 +19,99 @@ class State(Enum):
     PLAN_PASTED = 4
 
 
-PLAN_PASTE_TIME = timedelta(seconds=20)
+class ApplicationState:
+    """Encapsulates all application state to avoid global variables."""
 
-# Initialise first paste so that it won't be recent
-first_paste = datetime.now() - timedelta(hours=1)
-state = State.PLAN_PASTED
-consultation = {}
-record_consent = False
+    def __init__(self):
+        self.state = State.PLAN_PASTED
+        self.consultation = {}
+        self.first_paste = datetime.now() - timedelta(hours=1)
+        self.record_consent = False
+        self.PLAN_PASTE_TIME = timedelta(seconds=20)
+
+    def reset_consultation(self):
+        """Reset the consultation data."""
+        self.consultation = {}
+
+    def is_plan_paste_expired(self):
+        """Check if the plan paste time window has expired."""
+        return datetime.now() - self.first_paste > self.PLAN_PASTE_TIME
 
 
-def middle_mouse():
-    # State machine
-    global state
-    global consultation
-    global first_paste
-    global record_consent
-    global PLAN_PASTE_TIME
+def handle_plan_pasted_state(app_state):
+    """Handle the initial history collection state.
 
+    Args:
+        app_state: ApplicationState instance
+    """
+    print("Section 1: History collection")
+    app_state.reset_consultation()
+
+    ag.click()
+    ag.hotkey("ctrl", "a")
+    ag.hotkey("ctrl", "c")
+
+    clip = pyperclip.paste()
+    if "History:" in clip and "Plan:" in clip:
+        # TODO: fix try/except block to catch specific exception around parsing only
+        try:
+            sections = get_split_sections(clip)
+            if sections['history'] and app_state.record_consent:
+                sections['history'] += '\r\n(verbal consent given for AI transcription)'
+            g = Gui(sections)
+            g.remove_headings()
+            app_state.consultation = g.show_gui()
+            app_state.state = State.COPIED
+        except Exception as e:
+            print("Didn't find a consultation in clipboard")
+
+
+def handle_copied_state(app_state):
+    """Handle pasting sections after consultation is copied.
+
+    Args:
+        app_state: ApplicationState instance
+    """
+    print("Section 2: Pasting")
+    for s in ["history", "exam", "imp", "plan"]:
+        if s in app_state.consultation:
+            pyperclip.copy(app_state.consultation[s])
+            ag.hotkey("ctrl", "v")
+        ag.press("tab")
+        time.sleep(0.3)
+    app_state.first_paste = datetime.now()
+    app_state.state = State.PLAN_PASTE
+
+
+def handle_plan_paste_state(app_state):
+    """Handle pasting the plan section.
+
+    Args:
+        app_state: ApplicationState instance
+    """
+    print("Section 3: Pasting Plan")
+    ag.click()
+    ag.hotkey("ctrl", "v")
+    app_state.state = State.PLAN_PASTED
+
+
+def middle_mouse(app_state):
+    """Handle middle mouse button clicks based on current application state.
+
+    Args:
+        app_state: ApplicationState instance containing all application state
+    """
+    # State machine dispatcher
     if (
-        state == State.PLAN_PASTE and datetime.now() - first_paste > PLAN_PASTE_TIME
-    ) or state == State.PLAN_PASTED:
-        # We are trying to copy a history
-        print("Section 1: History collection")
-        consultation = {}
+        app_state.state == State.PLAN_PASTE and app_state.is_plan_paste_expired()
+    ) or app_state.state == State.PLAN_PASTED:
+        handle_plan_pasted_state(app_state)
 
-        ag.click()
-        ag.hotkey("ctrl", "a")
-        ag.hotkey("ctrl", "c")
+    elif app_state.state == State.COPIED:
+        handle_copied_state(app_state)
 
-        clip = pyperclip.paste()
-        if "History:" in clip and "Plan:" in clip:
-            # TODO: fix try/except block to catch specific exception around parsing only
-            try:
-                sections = get_split_sections(clip)
-                if sections['history'] and record_consent:
-                    sections['history'] += '\r\n(verbal consent given for AI transcription)'
-                g = Gui(sections)
-                g.remove_headings()
-                consultation = g.show_gui()
-                state = State.COPIED
-            except Exception as e:
-            #    print("Something went wrong: {}".format(e), file=stderr)
-                print("Didn't find a consultation in clipboard")
-
-    elif state == State.COPIED:
-        # Try to paste the sections required
-        print("Section 2: Pasting")
-        for s in ["history", "exam", "imp", "plan"]:
-            if s in consultation:
-                pyperclip.copy(consultation[s])
-                ag.hotkey("ctrl", "v")
-            ag.press("tab")
-            time.sleep(0.3)
-        first_paste = datetime.now()
-        state = State.PLAN_PASTE
-
-    elif state == State.PLAN_PASTE:
-        # We can't normally paste the plan if there has been a prescription
-        print("Section 3: Pasting Plan")
-        ag.click()
-        ag.hotkey("ctrl", "v")
-        state = State.PLAN_PASTED
+    elif app_state.state == State.PLAN_PASTE:
+        handle_plan_paste_state(app_state)
 
     else:
         print("Section 4: ??")
@@ -96,16 +128,26 @@ def create_image(width, height, color1, color2):
 
     return image
 
-def toggle_consent(icon, item):
-    global record_consent
-    record_consent = not item.checked
+def toggle_consent(app_state, icon, item):
+    """Toggle the consent recording flag.
+
+    Args:
+        app_state: ApplicationState instance
+        icon: System tray icon instance
+        item: Menu item that was clicked
+    """
+    app_state.record_consent = not item.checked
 
 
 def main():
-    global record_consent
+    """Main entry point for the application."""
+    app_state = ApplicationState()
 
+    # Create callback wrapper to pass app_state to middle_mouse
     mouse.on_button(
-        callback=middle_mouse, buttons=(mouse.MIDDLE), types=(mouse.DOWN, mouse.DOUBLE)
+        callback=lambda: middle_mouse(app_state),
+        buttons=(mouse.MIDDLE),
+        types=(mouse.DOWN, mouse.DOUBLE)
     )
 
     def quit(icon, item):
@@ -116,7 +158,16 @@ def main():
     icon = pystray.Icon(
         "test name",
         icon=create_image(64, 64, "black", "white"),
-        menu=pystray.Menu(pystray.MenuItem("Documentation History Importer", None), pystray.Menu.SEPARATOR, pystray.MenuItem("Automatically Record Consent", toggle_consent, checked=lambda item: record_consent), pystray.MenuItem("Exit", quit)),
+        menu=pystray.Menu(
+            pystray.MenuItem("Documentation History Importer", None),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                "Automatically Record Consent",
+                lambda icon, item: toggle_consent(app_state, icon, item),
+                checked=lambda item: app_state.record_consent
+            ),
+            pystray.MenuItem("Exit", quit)
+        ),
     ).run()
 
 
