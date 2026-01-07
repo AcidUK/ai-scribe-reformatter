@@ -109,7 +109,10 @@ def block_parser(block: str) -> BlockItem:
     heading = contents.pop(0)
     bullets = [ bullet.lstrip("- ") for bullet in contents ]
 
-    if bullets == [""]:
+    # Filter out empty bullets and separator lines (like "---" or "---")
+    bullets = [b for b in bullets if b.strip() and not all(c in '-_=' for c in b.strip())]
+
+    if not bullets:
         return None  # Guard for a block with a heading but no contents
 
     prose = parse_bullets_to_prose(contents)
@@ -233,6 +236,9 @@ def get_split_sections(consultation: str) -> dict:
     current_section = "history"
 
     for item in items:
+        if item is None:
+            continue
+        
         output = item.parse()
         output = linesep.join([s for s in output.splitlines() if s])
 
@@ -241,9 +247,13 @@ def get_split_sections(consultation: str) -> dict:
         if section_category:
             current_section = section_category
 
-        # Special case: Investigations always go in history
-        if item.heading == "Investigations: ":
-            _append_to_section(result, "history", "\r\n" + output)
+        # Special case: Investigations always go in history (check for variations in heading format)
+        if "Investigations" in item.heading:
+            # Ensure it's on its own line with proper spacing
+            if result["history"]:
+                _append_to_section(result, "history", "\r\n\r\n" + output)
+            else:
+                _append_to_section(result, "history", output)
         else:
             output = _format_section_output(output, item.heading, current_section)
             _append_to_section(result, current_section, output)
