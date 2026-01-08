@@ -5,9 +5,16 @@ from PIL import Image
 from pathlib import Path
 import sys
 import os
+from unittest.mock import MagicMock
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Mock GUI modules before importing history_clipboard_manager
+# This is necessary because pyautogui requires a display on Linux
+sys.modules['pyautogui'] = MagicMock()
+sys.modules['mouse'] = MagicMock()
+sys.modules['pystray'] = MagicMock()
 
 from history_clipboard_manager import IconManager, State, ApplicationState
 
