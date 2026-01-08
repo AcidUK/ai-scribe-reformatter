@@ -1,5 +1,5 @@
 from frontend import Gui
-from clipboard_parser import get_split_sections
+from clipboard_parser import get_split_sections, ConsultationParseError
 import pyperclip
 import mouse
 import time
@@ -53,28 +53,40 @@ def handle_plan_pasted_state(app_state):
     ag.hotkey("ctrl", "c")
 
     clip = pyperclip.paste()
-    if "History:" in clip and "Plan:" in clip:
-        # TODO: fix try/except block to catch specific exception around parsing only
-        try:
-            sections = get_split_sections(clip)
-            if sections['history'] and app_state.record_consent:
-                sections['history'] += '\r\n(verbal consent given for AI transcription)'
 
-            if app_state.bypass_gui:
-                # Skip GUI - use sections directly after removing headings
-                g = Gui(sections)
-                g.remove_headings()
-                app_state.consultation = g.state
-            else:
-                # Show GUI for editing
-                g = Gui(sections)
-                g.remove_headings()
-                app_state.consultation = g.show_gui()
+    try:
+        sections = get_split_sections(clip)
 
-            app_state.state = State.COPIED
-        except Exception as e:
-            print(f"Error parsing consultation: {e}")
-            print("Didn't find a consultation in clipboard")
+        if sections['history'] and app_state.record_consent:
+            sections['history'] += '\r\n(verbal consent given for AI transcription)'
+
+        if app_state.bypass_gui:
+            # Skip GUI - use sections directly after removing headings
+            g = Gui(sections)
+            g.remove_headings()
+            app_state.consultation = g.state
+        else:
+            # Show GUI for editing
+            g = Gui(sections)
+            g.remove_headings()
+            app_state.consultation = g.show_gui()
+
+        app_state.state = State.COPIED
+
+    except ConsultationParseError as e:
+        # Content didn't match expected consultation format
+        print(f"Consultation parsing failed: {e}")
+        print("Please ensure you've copied a valid consultation from Heidi")
+
+    except (KeyError, ValueError, AttributeError) as e:
+        # Data structure or value errors during parsing
+        print(f"Error processing consultation data: {type(e).__name__}: {e}")
+        print("The consultation format may have changed")
+
+    except Exception as e:
+        # Catch-all for unexpected errors (e.g., GUI errors)
+        print(f"Unexpected error: {type(e).__name__}: {e}")
+        print("Please check the consultation format and try again")
 
 
 def handle_copied_state(app_state):

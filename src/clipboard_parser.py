@@ -1,10 +1,30 @@
 import re
 from collections import namedtuple
-from typing import List
+from typing import List, Optional
 import pyperclip
 from os import linesep
 
 SectionResponse = namedtuple("SectionResponse", ["output", "newlines_handled"])
+
+
+class ConsultationParseError(Exception):
+    """Raised when the clipboard content cannot be parsed as a valid consultation."""
+
+    def __init__(self, message: str, clipboard_preview: Optional[str] = None):
+        """Initialize the error with a message and optional clipboard preview.
+
+        Args:
+            message: Description of what went wrong
+            clipboard_preview: First 100 chars of clipboard content for debugging
+        """
+        self.message = message
+        self.clipboard_preview = clipboard_preview[:100] if clipboard_preview else None
+        super().__init__(self.message)
+
+    def __str__(self):
+        if self.clipboard_preview:
+            return f"{self.message} | Clipboard preview: '{self.clipboard_preview}...'"
+        return self.message
 
 # Configuration for heading pattern matching
 HEADING_PATTERNS = {
@@ -220,6 +240,43 @@ def _append_to_section(result, section_key, output):
         result[section_key] = output
 
 
+def validate_consultation_content(content: str) -> None:
+    """Validate that content appears to be a consultation from Heidi.
+
+    Args:
+        content: The clipboard content to validate
+
+    Raises:
+        ConsultationParseError: If content doesn't appear to be a valid consultation
+    """
+    if not content or not content.strip():
+        raise ConsultationParseError("Clipboard is empty")
+
+    # Check for required consultation markers
+    has_history = any(marker in content for marker in ["History:", "History\n", "History\r\n"])
+    has_plan = any(marker in content for marker in ["Plan:", "Plan\n", "Plan\r\n"])
+
+    if not has_history:
+        raise ConsultationParseError(
+            "Missing 'History' section - clipboard content doesn't appear to be a consultation",
+            content
+        )
+
+    if not has_plan:
+        raise ConsultationParseError(
+            "Missing 'Plan' section - clipboard content doesn't appear to be a consultation",
+            content
+        )
+
+    # Check that content has reasonable structure (multiple lines/sections)
+    lines = content.splitlines()
+    if len(lines) < 3:
+        raise ConsultationParseError(
+            "Content too short to be a valid consultation",
+            content
+        )
+
+
 def get_split_sections(consultation: str) -> dict:
     """Gets history, exam, imp and plan from consultation
 
@@ -228,7 +285,13 @@ def get_split_sections(consultation: str) -> dict:
 
     Returns:
         dict: A dictionary containing history, exam, imp and plan sections
+
+    Raises:
+        ConsultationParseError: If the consultation content is invalid or cannot be parsed
     """
+    # Validate content before parsing
+    validate_consultation_content(consultation)
+
     main_history = consultation.partition('\r\nPatient Summary')[0]  # Dump patient summary and after
     items = get_items(main_history)
 

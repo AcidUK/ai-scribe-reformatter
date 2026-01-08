@@ -1,12 +1,14 @@
 import pytest
 from clipboard_parser import (
-    block_parser, 
-    parse_bullets_to_prose, 
+    block_parser,
+    parse_bullets_to_prose,
     parse_bullets_to_comma_separated_prose,
     get_items,
     get_split_sections,
     main,
-    BlockItem
+    BlockItem,
+    ConsultationParseError,
+    validate_consultation_content
 )
 
 def test_block_parser_basic():
@@ -139,10 +141,96 @@ def test_main_function():
 
 Examination:
 - Clinical findings"""
-    
+
     result = main(consultation)
-    
+
     assert "History:" in result
     assert "Examination:" in result
     assert "Patient details" in result
     assert "Clinical findings" in result
+
+
+# Tests for validation and exception handling
+
+
+def test_validate_consultation_content_valid():
+    """Test validation of valid consultation content"""
+    valid_content = """History:
+- Patient is 45 years old
+
+Plan:
+- Follow up in 2 weeks"""
+    # Should not raise
+    validate_consultation_content(valid_content)
+
+
+def test_validate_consultation_content_empty():
+    """Test validation rejects empty content"""
+    with pytest.raises(ConsultationParseError) as exc_info:
+        validate_consultation_content("")
+    assert "empty" in str(exc_info.value).lower()
+
+
+def test_validate_consultation_content_whitespace_only():
+    """Test validation rejects whitespace-only content"""
+    with pytest.raises(ConsultationParseError) as exc_info:
+        validate_consultation_content("   \n  \t  ")
+    assert "empty" in str(exc_info.value).lower()
+
+
+def test_validate_consultation_content_missing_history():
+    """Test validation rejects content without History section"""
+    invalid_content = """Plan:
+- Follow up in 2 weeks"""
+    with pytest.raises(ConsultationParseError) as exc_info:
+        validate_consultation_content(invalid_content)
+    assert "history" in str(exc_info.value).lower()
+
+
+def test_validate_consultation_content_missing_plan():
+    """Test validation rejects content without Plan section"""
+    invalid_content = """History:
+- Patient is 45 years old"""
+    with pytest.raises(ConsultationParseError) as exc_info:
+        validate_consultation_content(invalid_content)
+    assert "plan" in str(exc_info.value).lower()
+
+
+def test_validate_consultation_content_too_short():
+    """Test validation rejects very short content"""
+    invalid_content = "History:Plan:"
+    with pytest.raises(ConsultationParseError) as exc_info:
+        validate_consultation_content(invalid_content)
+    assert "too short" in str(exc_info.value).lower()
+
+
+def test_consultation_parse_error_with_preview():
+    """Test ConsultationParseError includes clipboard preview"""
+    long_content = "History:" + ("x" * 200) + "\nPlan:\n- Follow up"
+    error = ConsultationParseError("Test error", long_content)
+    error_str = str(error)
+    assert "Test error" in error_str
+    assert "..." in error_str  # Indicates truncation
+    assert "Clipboard preview:" in error_str
+
+
+def test_consultation_parse_error_without_preview():
+    """Test ConsultationParseError without clipboard preview"""
+    error = ConsultationParseError("Test error")
+    error_str = str(error)
+    assert error_str == "Test error"
+    assert "Clipboard preview:" not in error_str
+
+
+def test_get_split_sections_with_invalid_content():
+    """Test get_split_sections raises ConsultationParseError for invalid content"""
+    invalid_content = "Random text that is not a consultation"
+    with pytest.raises(ConsultationParseError):
+        get_split_sections(invalid_content)
+
+
+def test_get_split_sections_with_empty_content():
+    """Test get_split_sections raises ConsultationParseError for empty content"""
+    with pytest.raises(ConsultationParseError) as exc_info:
+        get_split_sections("")
+    assert "empty" in str(exc_info.value).lower()
