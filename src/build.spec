@@ -5,7 +5,9 @@ a = Analysis(
     ['history_clipboard_manager.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        ('icons/*.png', 'icons'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
