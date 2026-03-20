@@ -2,7 +2,10 @@ import re
 from collections import namedtuple
 from typing import List, Optional
 import pyperclip
+import logging
 from os import linesep
+
+logger = logging.getLogger("scribe_reformatter.parser")
 
 SectionResponse = namedtuple("SectionResponse", ["output", "newlines_handled"])
 
@@ -11,12 +14,6 @@ class ConsultationParseError(Exception):
     """Raised when the clipboard content cannot be parsed as a valid consultation."""
 
     def __init__(self, message: str, clipboard_preview: Optional[str] = None):
-        """Initialize the error with a message and optional clipboard preview.
-
-        Args:
-            message: Description of what went wrong
-            clipboard_preview: First 100 chars of clipboard content for debugging
-        """
         self.message = message
         self.clipboard_preview = clipboard_preview[:100] if clipboard_preview else None
         super().__init__(self.message)
@@ -25,6 +22,7 @@ class ConsultationParseError(Exception):
         if self.clipboard_preview:
             return f"{self.message} | Clipboard preview: '{self.clipboard_preview}...'"
         return self.message
+
 
 # Configuration for heading pattern matching
 HEADING_PATTERNS = {
@@ -51,12 +49,15 @@ class BlockItem:
             for pattern in patterns:
                 if re.match(pattern, self.heading):
                     return section_type
+        logger.debug("Heading '%s' did not match any known section pattern", self.heading)
         return None
 
     def parse(self):
         output = ""
 
         section_type = self._match_heading_type()
+        logger.debug("Parsing block: heading='%s' matched_section=%s bullets=%d",
+                      self.heading, section_type, len(self.bullets))
 
         if section_type == 'history':
             result = self.parse_history()
@@ -75,6 +76,8 @@ class BlockItem:
         if not result.newlines_handled:
             output += "\n\n"
 
+        logger.debug("Block parse result: %d chars, newlines_handled=%s",
+                      len(output), result.newlines_handled)
         return output
 
     def parse_history(self):
@@ -87,10 +90,12 @@ class BlockItem:
             output = self.comma_separated_prose
         else:
             output = "Hx of " + self.comma_separated_prose
+        logger.debug("PMH output: %s", output[:200])
         return SectionResponse(output, False)
 
     def parse_exam(self):
         if self.comma_separated_prose == "N/A":
+            logger.debug("Exam is N/A — skipping")
             return SectionResponse("", True)
 
         self.heading = "Examination:"
@@ -99,6 +104,7 @@ class BlockItem:
 
     def parse_imp(self):
         if self.comma_separated_prose == "Not explicitly mentioned":
+            logger.debug("Impression not explicitly mentioned — skipping")
             return SectionResponse("", True)
 
         self.heading = "Impression:"
@@ -112,7 +118,7 @@ class BlockItem:
         return None
 
     def parse_unhandled(self):
-        # return SectionResponse(self.heading + "\n" + "\n".join(self.bullets), False)
+        logger.debug("Unhandled heading '%s' — treating as prose block", self.heading)
         return SectionResponse(self.heading + " " + self.prose + "\n", True)
 
 
@@ -122,7 +128,8 @@ def block_parser(block: str) -> BlockItem:
     block = block.lstrip().rstrip()
 
     if block == "":
-        return None  # Guard for empty block entirely
+        logger.debug("Skipping empty block")
+        return None
 
     contents = block.splitlines()
 
@@ -133,10 +140,13 @@ def block_parser(block: str) -> BlockItem:
     bullets = [b for b in bullets if b.strip() and not all(c in '-_=' for c in b.strip())]
 
     if not bullets:
-        return None  # Guard for a block with a heading but no contents
+        logger.debug("Skipping block with heading '%s' but no valid bullets", heading)
+        return None
 
     prose = parse_bullets_to_prose(contents)
     comma_separated_prose = parse_bullets_to_comma_separated_prose(contents)
+
+    logger.debug("block_parser: heading='%s' bullets=%d", heading, len(bullets))
 
     item = BlockItem(
         heading=heading,
@@ -184,10 +194,14 @@ def get_items(consultation: str):
     # Need to split on two subsequent linebreaks, different on windows vs linux
     if "\r\n" in consultation:
         sections = consultation.split("\r\n\r\n")
+        logger.debug("Splitting on \\r\\n\\r\\n (Windows line endings) — %d blocks", len(sections))
     else:
         sections = consultation.split("\n\n")
+        logger.debug("Splitting on \\n\\n (Unix line endings) — %d blocks", len(sections))
 
     items = [block_parser(s) for s in sections]
+    non_none = [i for i in items if i is not None]
+    logger.debug("get_items: %d blocks total, %d non-None items", len(items), len(non_none))
     return items
 
 
@@ -206,34 +220,21 @@ def _get_section_category(heading):
         "Impression:": "imp",
         "Plan:": "plan",
     }
-    return section_map.get(heading)
+    cat = section_map.get(heading)
+    if cat is None and heading:
+        logger.debug("Heading '%s' not in _get_section_category map", heading)
+    return cat
 
 
 def _format_section_output(output, heading, current_section):
-    """Format output based on section context.
-
-    Args:
-        output: The parsed output string
-        heading: The heading of the current item
-        current_section: The current section being processed
-
-    Returns:
-        str: Formatted output string
-    """
-    # Add newline before non-History subsections in the history section
+    """Format output based on section context."""
     if current_section == "history" and heading != 'History:':
         output = "\r\n" + output
     return output
 
 
 def _append_to_section(result, section_key, output):
-    """Append output to a section, handling None values.
-
-    Args:
-        result: The result dictionary
-        section_key: The section key to append to
-        output: The output string to append
-    """
+    """Append output to a section, handling None values."""
     if result[section_key]:
         result[section_key] += output
     else:
@@ -255,6 +256,9 @@ def validate_consultation_content(content: str) -> None:
     # Check for required consultation markers
     has_history = any(marker in content for marker in ["History:", "History\n", "History\r\n"])
     has_plan = any(marker in content for marker in ["Plan:", "Plan\n", "Plan\r\n"])
+
+    logger.debug("Validation: has_history=%s has_plan=%s content_length=%d",
+                  has_history, has_plan, len(content))
 
     if not has_history:
         raise ConsultationParseError(
@@ -292,16 +296,28 @@ def get_split_sections(consultation: str) -> dict:
     # Validate content before parsing
     validate_consultation_content(consultation)
 
-    main_history = consultation.partition('\r\nPatient Summary')[0]  # Dump patient summary and after
+    # Try Windows line ending first, fall back to Unix
+    if '\r\nPatient Summary' in consultation:
+        main_history = consultation.partition('\r\nPatient Summary')[0]
+        logger.debug("Stripped Patient Summary (found \\r\\n separator)")
+    elif '\nPatient Summary' in consultation:
+        main_history = consultation.partition('\nPatient Summary')[0]
+        logger.debug("Stripped Patient Summary (found \\n separator)")
+    else:
+        main_history = consultation
+        logger.debug("No Patient Summary found in content")
+
     items = get_items(main_history)
 
     result = dict.fromkeys(["history", "exam", "imp", "plan"])
     current_section = "history"
 
-    for item in items:
+    for idx, item in enumerate(items):
         if item is None:
             continue
-        
+
+        logger.debug("Processing item %d: heading='%s'", idx, item.heading)
+
         output = item.parse()
         output = linesep.join([s for s in output.splitlines() if s])
 
@@ -309,10 +325,12 @@ def get_split_sections(consultation: str) -> dict:
         section_category = _get_section_category(item.heading)
         if section_category:
             current_section = section_category
+            logger.debug("Current section changed to '%s' (from heading '%s')",
+                          section_category, item.heading)
 
-        # Special case: Investigations always go in history (check for variations in heading format)
+        # Special case: Investigations always go in history
         if "Investigations" in item.heading:
-            # Ensure it's on its own line with proper spacing
+            logger.debug("Investigations block — appending to history section")
             if result["history"]:
                 _append_to_section(result, "history", "\r\n\r\n" + output)
             else:
@@ -321,6 +339,8 @@ def get_split_sections(consultation: str) -> dict:
             output = _format_section_output(output, item.heading, current_section)
             _append_to_section(result, current_section, output)
 
+    logger.debug("Final sections: %s",
+                  {k: f"{len(v)} chars" if v else "None" for k, v in result.items()})
     return result
 
 
