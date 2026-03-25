@@ -27,10 +27,10 @@ logger = logging.getLogger("scribe_reformatter")
 
 
 def setup_logging(debug_mode: bool = False):
-    """Configure logging with console + file handlers.
+    """Configure logging with console + optional file handler.
 
-    The **file handler** always captures DEBUG-level output so the log file
-    is useful even when the user hasn't explicitly enabled debug mode.
+    The **file handler** is only added when *debug_mode* is True, so no
+    log file is created until the user explicitly enables debug mode.
     The **console handler** respects *debug_mode* to control verbosity.
     """
     root = logging.getLogger("scribe_reformatter")
@@ -41,11 +41,12 @@ def setup_logging(debug_mode: bool = False):
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # ---- File handler (always DEBUG) ----
-    fh = logging.FileHandler(str(LOG_FILE), encoding="utf-8", mode="a")
-    fh.setLevel(logging.DEBUG)
-    fh.setFormatter(fmt)
-    root.addHandler(fh)
+    # ---- File handler (only when debug enabled) ----
+    if debug_mode:
+        fh = logging.FileHandler(str(LOG_FILE), encoding="utf-8", mode="a")
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(fmt)
+        root.addHandler(fh)
 
     # ---- Console handler ----
     console_level = logging.DEBUG if debug_mode else logging.INFO
@@ -54,14 +55,32 @@ def setup_logging(debug_mode: bool = False):
     ch.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
     root.addHandler(ch)
 
-    logger.info("Logging initialised — log file: %s", LOG_FILE)
-    logger.info("Debug mode (console): %s | File always captures DEBUG", debug_mode)
+    logger.info("Logging initialised — debug mode: %s", debug_mode)
 
 
 def set_console_debug(enabled: bool):
-    """Toggle the console handler between DEBUG and INFO without touching
-    the file handler (which is always DEBUG)."""
+    """Toggle the console handler between DEBUG and INFO, and add/remove
+    the file handler so no log file is created until debug mode is enabled."""
     root = logging.getLogger("scribe_reformatter")
+
+    # Manage file handler
+    file_handlers = [h for h in root.handlers if isinstance(h, logging.FileHandler)]
+    if enabled and not file_handlers:
+        fh = logging.FileHandler(str(LOG_FILE), encoding="utf-8", mode="a")
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(logging.Formatter(
+            fmt="%(asctime)s [%(levelname)-7s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+        root.addHandler(fh)
+        logger.info("Log file enabled: %s", LOG_FILE)
+    elif not enabled and file_handlers:
+        for h in file_handlers:
+            h.close()
+            root.removeHandler(h)
+        logger.info("Log file disabled")
+
+    # Console handler
     for h in root.handlers:
         if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
             h.setLevel(logging.DEBUG if enabled else logging.INFO)
@@ -180,6 +199,7 @@ class ApplicationState:
         self.first_paste = datetime.now() - timedelta(hours=1)
         self.record_consent = False
         self.bypass_gui = False
+        self.debug_mode = False
         self.PLAN_PASTE_TIME = timedelta(seconds=20)
 
         # Parse error timeout tracking
@@ -401,8 +421,9 @@ def toggle_bypass_gui(app_state, icon, item):
 def toggle_debug(app_state, icon, item):
     """Toggle debug (verbose) console logging."""
     new_val = not item.checked
+    app_state.debug_mode = new_val
     set_console_debug(new_val)
-    logger.info("Debug mode toggled → %s (log file always captures DEBUG)", new_val)
+    logger.info("Debug mode toggled → %s", new_val)
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +502,7 @@ def main():
             pystray.MenuItem(
                 "Debug Mode (verbose console)",
                 lambda icon, item: toggle_debug(app_state, icon, item),
-                checked=lambda item: False
+                checked=lambda item: app_state.debug_mode
             ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Exit", quit)
