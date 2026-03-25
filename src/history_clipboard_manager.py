@@ -294,7 +294,7 @@ def handle_copied_state(app_state):
     """Handle pasting sections into SystmOne."""
     logger.info("State handler: COPIED → pasting sections into SystmOne")
     for s in ["history", "exam", "imp", "plan"]:
-        if s in app_state.consultation:
+        if s in app_state.consultation and app_state.consultation[s]:
             logger.debug("Pasting section '%s' (%d chars)", s, len(app_state.consultation[s]))
             pyperclip.copy(app_state.consultation[s])
             ag.hotkey("ctrl", "v")
